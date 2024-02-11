@@ -22,10 +22,10 @@ var regs = [][2]string{
 }
 
 var effectiveAddress = []string{
-	"bx + si",
-	"bx + di",
-	"bp + si",
-	"bp + di",
+	"bx+si",
+	"bx+di",
+	"bp+si",
+	"bp+di",
 	"si",
 	"di",
 	"bp",
@@ -40,8 +40,8 @@ func DecodeInstruction(buff io.Reader) (string, error) {
 	}
 	var op, left, right string
 
-	if b1>>2 == 0b100010 {
-		// [100010|d|w] [mod|reg|rm] [disp8] [disp16]
+	switch true {
+	case b1>>2 == 0b100010:
 		op = "mov"
 
 		var b2 byte
@@ -54,46 +54,36 @@ func DecodeInstruction(buff io.Reader) (string, error) {
 		rm := b2 & 0b111
 
 		left = regs[reg][w]
-
-		switch mod {
-		case 0b00:
-			// memory mode, no displacement except r/m = 0b110
-			if rm == 0b110 {
-				var disp16 uint16
-				binary.Read(buff, binary.LittleEndian, &disp16)
-				right = fmt.Sprintf("[%d]", disp16)
-			} else {
-				right = fmt.Sprintf("[%s]", effectiveAddress[rm])
-			}
-
-		case 0b01:
-			// memory mode 8-bit
-			var disp8 byte
-			binary.Read(buff, binary.LittleEndian, &disp8)
-			right = fmt.Sprintf("[%s + %d]", effectiveAddress[rm], disp8)
-
-		case 0b10:
-			// memory mode 16-bit
-			var disp16 uint16
-			binary.Read(buff, binary.LittleEndian, &disp16)
-			right = fmt.Sprintf("[%s + %d]", effectiveAddress[rm], disp16)
-
-		case 0b11:
-			// register mode
-			right = regs[rm][w]
-		}
+		right = DecodeRm(buff, mod, w, rm)
 
 		if d == 0 {
 			left, right = right, left
 		}
-	}
 
-	if b1>>1 == 0b1100011 {
+	case b1>>1 == 0b1100011:
 		// immediate to register/memory
-		panic("not implemented")
-	}
+		op = "mov"
 
-	if b1>>4 == 0b1011 {
+		var b2 byte
+		binary.Read(buff, binary.LittleEndian, &b2)
+
+		w := b1 & 0b1
+		mod := b2 >> 6
+		rm := b2 & 0b111
+
+		left = DecodeRm(buff, mod, w, rm)
+
+		if w == 0 {
+			var b byte
+			binary.Read(buff, binary.LittleEndian, &b)
+			right = fmt.Sprintf("byte %d", b)
+		} else {
+			var w uint16
+			binary.Read(buff, binary.LittleEndian, &w)
+			right = fmt.Sprintf("word %d", w)
+		}
+
+	case b1>>4 == 0b1011:
 		// immediate to register
 		op = "mov"
 
@@ -110,19 +100,75 @@ func DecodeInstruction(buff io.Reader) (string, error) {
 			binary.Read(buff, binary.LittleEndian, &disp16)
 			right = fmt.Sprintf("%d", disp16)
 		}
-	}
 
-	if b1>>1 == 0b1010000 {
+	case b1>>2 == 0b101000:
 		// memory to accumulator
-		panic("not implemented")
-	}
+		op = "mov"
+		d := (b1 >> 1 & 0b1) ^ 0b1
+		w := b1 & 0b1
+		left = regs[0][w]
 
-	if b1>>1 == 0b1010001 {
-		// accumulator to memory
-		panic("not implemented")
+		if w == 0 {
+			var disp8 byte
+			binary.Read(buff, binary.LittleEndian, &disp8)
+			right = fmt.Sprintf("[%d]", disp8)
+		} else {
+			var disp16 uint16
+			binary.Read(buff, binary.LittleEndian, &disp16)
+			right = fmt.Sprintf("[%d]", disp16)
+		}
+
+		if d == 0 {
+			left, right = right, left
+		}
 	}
 
 	return fmt.Sprintf("%s %s, %s", op, left, right), nil
+}
+
+func DecodeRm(buff io.Reader, mod byte, w byte, rm byte) string {
+	var decoded string
+
+	switch mod {
+	case 0b00:
+		// memory mode, no displacement except r/m = 0b110
+		if rm == 0b110 {
+			var disp16 uint16
+			binary.Read(buff, binary.LittleEndian, &disp16)
+			decoded = fmt.Sprintf("[%d]", disp16)
+		} else {
+			decoded = fmt.Sprintf("[%s]", effectiveAddress[rm])
+		}
+
+	case 0b01:
+		// memory mode 8-bit
+		var disp8 byte
+		binary.Read(buff, binary.LittleEndian, &disp8)
+
+		if w == 1 {
+			extended := int16(int8(disp8))
+			decoded = fmt.Sprintf("[%s%+d]", effectiveAddress[rm], extended)
+		} else {
+			decoded = fmt.Sprintf("[%s%+d]", effectiveAddress[rm], disp8)
+		}
+
+	case 0b10:
+		// memory mode 16-bit
+		var disp16 uint16
+		binary.Read(buff, binary.LittleEndian, &disp16)
+
+		if w == 1 {
+			decoded = fmt.Sprintf("[%s%+d]", effectiveAddress[rm], int16(disp16))
+		} else {
+			decoded = fmt.Sprintf("[%s%+d]", effectiveAddress[rm], disp16)
+		}
+
+	case 0b11:
+		// register mode
+		decoded = regs[rm][w]
+	}
+
+	return decoded
 }
 
 func main() {
@@ -134,6 +180,7 @@ func main() {
 	defer file.Close()
 
 	buff := bufio.NewReader(file)
+
 	fmt.Println("bits 16")
 	for {
 		instruction, err := DecodeInstruction(buff)
