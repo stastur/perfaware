@@ -1,3 +1,3 @@
-module github.com/stastur/sim8086
+module perfaware
 
 go 1.22.0

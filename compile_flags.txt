@@ -1,0 +1,3 @@
+--target=arm-none-eabi
+-mfloat-abi=hard
+-march=armv7-a

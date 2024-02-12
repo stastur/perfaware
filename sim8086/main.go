@@ -1,4 +1,4 @@
-package main
+package sim8086
 
 import (
 	"bufio"
@@ -7,8 +7,6 @@ import (
 	"io"
 	"os"
 )
-
-type Instruction []byte
 
 var regs = [][2]string{
 	{"al", "ax"},
