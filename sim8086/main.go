@@ -73,8 +73,38 @@ var Blueprints = []IstructionBlueprint{
 	{"mov", []Bits{Const(6, 0b101000), E_FLAG, W_FLAG, ADDR, Implicit(Bits_Reg, 0)}},
 
 	{"add", []Bits{Const(6, 0b000000), D_FLAG, W_FLAG, MOD, REG, RM, DISP}},
-	{"add", []Bits{Const(6, 0b100000), S_FLAG, W_FLAG, MOD, Const(3, 0b000), DISP, DATA}},
-	{"add", []Bits{Const(7, 0b0000010), W_FLAG, DATA}},
+	{"add", []Bits{Const(6, 0b100000), S_FLAG, W_FLAG, MOD, Const(3, 0), RM, DISP, DATA}},
+	{"add", []Bits{Const(7, 0b0000010), W_FLAG, DATA, Implicit(Bits_Reg, 0), Implicit(Bits_D, 1)}},
+
+	{"sub", []Bits{Const(6, 0b001010), D_FLAG, W_FLAG, MOD, REG, RM, DISP}},
+	{"sub", []Bits{Const(6, 0b100000), S_FLAG, W_FLAG, MOD, Const(3, 0b101), RM, DISP, DATA}},
+	{"sub", []Bits{Const(7, 0b0010110), W_FLAG, DATA, Implicit(Bits_Reg, 0), Implicit(Bits_D, 1)}},
+
+	{"cmp", []Bits{Const(6, 0b001110), D_FLAG, W_FLAG, MOD, REG, RM, DISP}},
+	{"cmp", []Bits{Const(6, 0b100000), S_FLAG, W_FLAG, MOD, Const(3, 0b111), RM, DISP, DATA}},
+	{"cmp", []Bits{Const(7, 0b0011110), W_FLAG, DATA, Implicit(Bits_Reg, 0), Implicit(Bits_D, 1)}},
+
+	{"jo", []Bits{Const(4, 0b0111), Const(4, 0), DATA}},
+	{"jno", []Bits{Const(4, 0b0111), Const(4, 1), DATA}},
+	{"jb", []Bits{Const(4, 0b0111), Const(4, 2), DATA}},
+	{"jnb", []Bits{Const(4, 0b0111), Const(4, 3), DATA}},
+	{"jz", []Bits{Const(4, 0b0111), Const(4, 4), DATA}},
+	{"jne", []Bits{Const(4, 0b0111), Const(4, 5), DATA}},
+	{"jbe", []Bits{Const(4, 0b0111), Const(4, 6), DATA}},
+	{"ja", []Bits{Const(4, 0b0111), Const(4, 7), DATA}},
+	{"js", []Bits{Const(4, 0b0111), Const(4, 8), DATA}},
+	{"jns", []Bits{Const(4, 0b0111), Const(4, 9), DATA}},
+	{"jp", []Bits{Const(4, 0b0111), Const(4, 10), DATA}},
+	{"jnp", []Bits{Const(4, 0b0111), Const(4, 11), DATA}},
+	{"jl", []Bits{Const(4, 0b0111), Const(4, 12), DATA}},
+	{"jnl", []Bits{Const(4, 0b0111), Const(4, 13), DATA}},
+	{"jle", []Bits{Const(4, 0b0111), Const(4, 14), DATA}},
+	{"jg", []Bits{Const(4, 0b0111), Const(4, 15), DATA}},
+
+	{"loopnz", []Bits{Const(4, 0b1110), Const(4, 0), DATA}},
+	{"loopz", []Bits{Const(4, 0b1110), Const(4, 1), DATA}},
+	{"loop", []Bits{Const(4, 0b1110), Const(4, 2), DATA}},
+	{"jcxz", []Bits{Const(4, 0b1110), Const(4, 3), DATA}},
 }
 
 func main() {
@@ -84,11 +114,6 @@ func main() {
 		println("Error reading file.")
 		panic(err)
 	}
-
-	// for _, b := range buff {
-	// 	fmt.Printf("%b ", b)
-	// }
-	// fmt.Println()
 
 	fmt.Println("bits 16")
 	index := 0
@@ -109,12 +134,12 @@ func DecodeInstruction(startingAt int, buff []byte) (int, error) {
 	}
 
 	for _, bp := range Blueprints {
-		bitsLeft := 8
-		currentByte := buff[currentByteIndex]
-		bytesRead := 1
+		var bitsSet uint32
+		var bitsLeft int
+		var bytesRead int
+		var currentByte byte
 
-		var bitsSet uint32 = 0
-		bits := make([]uint32, Bits_Count)
+		bits := make([]uint16, Bits_Count)
 
 		isValid := true
 		for _, part := range bp.Bits {
@@ -131,7 +156,7 @@ func DecodeInstruction(startingAt int, buff []byte) (int, error) {
 
 			if part.Type == Bits_Literal {
 				constBits := currentByte >> (bitsLeft - part.BitCount)
-				constBits &= byte(0xff >> (8 - part.BitCount))
+				constBits &= 0xff >> (8 - part.BitCount)
 
 				if constBits != part.Value {
 					isValid = false
@@ -144,9 +169,9 @@ func DecodeInstruction(startingAt int, buff []byte) (int, error) {
 
 			mask := ^byte(0xff << part.BitCount)
 			if part.Value != 0 {
-				bits[part.Type] = uint32(part.Value)
+				bits[part.Type] = uint16(part.Value)
 			} else {
-				bits[part.Type] = uint32((currentByte >> bitsLeft) & mask)
+				bits[part.Type] = uint16((currentByte >> bitsLeft) & mask)
 			}
 		}
 
@@ -159,14 +184,14 @@ func DecodeInstruction(startingAt int, buff []byte) (int, error) {
 		w := bits[Bits_W] == 1
 		s := bits[Bits_S] == 1
 
-		readFromBuff := func(exists bool, wide bool, signExtended bool) uint32 {
+		readFromBuff := func(exists bool, wide bool, signExtended bool) uint16 {
 			if !exists {
 				return 0
 			}
 
 			if wide {
-				lo := uint32(buff[currentByteIndex+bytesRead+0])
-				hi := uint32(buff[currentByteIndex+bytesRead+1])
+				lo := uint16(buff[currentByteIndex+bytesRead+0])
+				hi := uint16(buff[currentByteIndex+bytesRead+1])
 				bytesRead += 2
 
 				return hi<<8 | lo
@@ -175,10 +200,10 @@ func DecodeInstruction(startingAt int, buff []byte) (int, error) {
 				bytesRead += 1
 
 				if signExtended {
-					return uint32(int8(lo))
+					return uint16(int8(lo))
 				}
 
-				return uint32(lo)
+				return uint16(lo)
 			}
 		}
 
@@ -188,23 +213,25 @@ func DecodeInstruction(startingAt int, buff []byte) (int, error) {
 		hasData := isTypeSet(bitsSet, Bits_HasData)
 
 		bits[Bits_HasDisp] = readFromBuff(hasDisp, mod == 0b10 || hasDirectAddress, w)
-		bits[Bits_HasData] = readFromBuff(hasData, w, s)
+		bits[Bits_HasData] = readFromBuff(hasData, w && !s, s)
 
 		var operandLeft interface{}
-
 		if isTypeSet(bitsSet, Bits_Mod) {
 			operandLeft = DecodeMemory(rm, mod, w, bits[Bits_HasDisp])
-		} else if isTypeSet(bitsSet, Bits_HasData) {
-			operandLeft = fmt.Sprintf("%d", bits[Bits_HasData])
 		} else if isTypeSet(bitsSet, Bits_HasAddr) {
 			operandLeft = fmt.Sprintf("[%d]", readFromBuff(true, w, false))
 		}
 
 		var operandRight interface{}
-
 		if isTypeSet(bitsSet, Bits_Reg) {
 			operandRight = DecodeReg(bits[Bits_Reg], w)
-		} else if isTypeSet(bitsSet, Bits_HasData) {
+		}
+
+		if bits[Bits_D] == 1 || (isTypeSet(bitsSet, Bits_E) && bits[Bits_E] == 0) {
+			operandLeft, operandRight = operandRight, operandLeft
+		}
+
+		if isTypeSet(bitsSet, Bits_HasData) {
 			var size string
 			if w {
 				size = "word"
@@ -215,11 +242,15 @@ func DecodeInstruction(startingAt int, buff []byte) (int, error) {
 			operandRight = fmt.Sprintf("%s %d", size, bits[Bits_HasData])
 		}
 
-		if bits[Bits_D] == 1 || (isTypeSet(bitsSet, Bits_E) && bits[Bits_E] == 0) {
-			operandLeft, operandRight = operandRight, operandLeft
+		fmt.Print(bp.Name)
+		if operandLeft != nil {
+			fmt.Printf(" %s,", operandLeft)
 		}
 
-		fmt.Printf("%s %s, %s\n", bp.Name, operandLeft, operandRight)
+		if operandRight != nil {
+			fmt.Printf(" %s\n", operandRight)
+		}
+
 		currentByteIndex += bytesRead
 
 		return currentByteIndex, nil
@@ -228,7 +259,7 @@ func DecodeInstruction(startingAt int, buff []byte) (int, error) {
 	return -1, errors.New("No command")
 }
 
-func DecodeMemory(rm uint32, mod uint32, wide bool, disp uint32) interface{} {
+func DecodeMemory(rm uint16, mod uint16, wide bool, disp uint16) interface{} {
 	switch mod {
 	case 0b00:
 		if rm == 0b110 {
@@ -249,7 +280,7 @@ func DecodeMemory(rm uint32, mod uint32, wide bool, disp uint32) interface{} {
 	return ""
 }
 
-func eac(rm uint32, mod uint32, wide bool, disp uint32) string {
+func eac(rm uint16, mod uint16, wide bool, disp uint16) string {
 	regs := []string{
 		"bx+si",
 		"bx+di",
@@ -264,7 +295,7 @@ func eac(rm uint32, mod uint32, wide bool, disp uint32) string {
 	return fmt.Sprintf("[%s%+d]", regs[rm], int16(disp))
 }
 
-func DecodeReg(reg uint32, wide bool) string {
+func DecodeReg(reg uint16, wide bool) string {
 	regs := [][2]string{
 		{"al", "ax"},
 		{"cl", "cx"},
@@ -276,11 +307,12 @@ func DecodeReg(reg uint32, wide bool) string {
 		{"bh", "di"},
 	}
 
+	idx := 0
 	if wide {
-		return regs[reg][1]
-	} else {
-		return regs[reg][0]
+		idx = 1
 	}
+
+	return regs[reg][idx]
 }
 
 func isTypeSet(flags uint32, bitsType BitsType) bool {
