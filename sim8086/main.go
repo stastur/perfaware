@@ -150,6 +150,8 @@ func (registers Registers) Print() {
 		reg := OperandRegister{idx, 0, 2}
 		fmt.Printf(";   %s: 0x%04x (%d)\n", reg, v, v)
 	}
+
+	PrintFlags(registers[RI_flags])
 }
 
 type Memory [3072]byte
@@ -220,18 +222,64 @@ func SetOperandValue(operand Operand, value int16, registers Registers, memory M
 	}
 }
 
+func PrintFlags(flags int16) {
+	strFlags := [RF_Count]string{
+		RF_zero: "Z",
+		RF_sign: "S",
+	}
+
+	fmt.Print("; Flags: ")
+	for i, f := range strFlags {
+		if flags&(1<<i) == (1 << i) {
+			fmt.Print(f)
+		}
+	}
+	fmt.Println()
+}
+
+func BoolToInt(value bool) int16 {
+	if value {
+		return 1
+	}
+
+	return 0
+}
+
+func UpdateFlagsRegister(value int16, registers Registers) {
+	registers[RI_flags] &= 0
+	registers[RI_flags] |= BoolToInt(value == 0) << RF_zero
+	registers[RI_flags] |= BoolToInt(value < 0) << RF_sign
+
+	PrintFlags(registers[RI_flags])
+}
+
 func ExecuteIntruction(inst Instruction, registers Registers, memory Memory) {
 	dest := inst.Operands[0]
 	source := inst.Operands[1]
 
-	before := GetOperandValue(dest, registers, memory)
+	left := GetOperandValue(dest, registers, memory)
+	right := GetOperandValue(source, registers, memory)
 
 	switch inst.Op {
 	case "mov":
-		value := GetOperandValue(source, registers, memory)
+		SetOperandValue(dest, right, registers, memory)
+
+	case "add":
+		value := left + right
 		SetOperandValue(dest, value, registers, memory)
+		UpdateFlagsRegister(value, registers)
+
+	case "sub":
+		value := left - right
+		SetOperandValue(dest, value, registers, memory)
+		UpdateFlagsRegister(value, registers)
+
+	case "cmp":
+		value := left - right
+		UpdateFlagsRegister(value, registers)
 	}
 
+	before := left
 	after := GetOperandValue(dest, registers, memory)
 
 	fmt.Printf("; %s 0x%04x->0x%04x\n", dest.String(), before, after)
@@ -403,7 +451,18 @@ const (
 	RI_si
 	RI_di
 
+	RI_flags
+
 	RI_Count
+)
+
+type RegisterFlag int
+
+const (
+	RF_zero RegisterFlag = iota
+	RF_sign
+
+	RF_Count
 )
 
 func DecodeReg(reg uint16, wide bool) OperandRegister {
