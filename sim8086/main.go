@@ -7,6 +7,35 @@ import (
 	"strings"
 )
 
+func main() {
+	filePath := os.Args[1]
+
+	buff, err := os.ReadFile(filePath)
+	if err != nil {
+		println("Error reading file.")
+		panic(err)
+	}
+
+	fmt.Println("bits 16")
+
+	for index := 0; index < len(buff); {
+		instruction, err := DecodeInstruction(index, buff)
+
+		if err != nil {
+			fmt.Println(";", err)
+			break
+		}
+
+		fmt.Println(instruction.String())
+		ExecuteIntruction(*instruction, registers, memory)
+
+		index += instruction.Size
+	}
+
+	fmt.Println()
+	registers.Print()
+}
+
 type BitsType int
 
 type Bits struct {
@@ -108,26 +137,104 @@ var Blueprints = []IstructionBlueprint{
 	{"jcxz", []Bits{Const(4, 0b1110), Const(4, 3), DATA}},
 }
 
-func main() {
-	filePath := os.Args[1]
-	buff, err := os.ReadFile(filePath)
-	if err != nil {
-		println("Error reading file.")
-		panic(err)
+type Registers []int16
+
+var registers = make(Registers, RI_Count)
+
+func (registers Registers) Print() {
+	printOrder := []RegisterIndex{RI_a, RI_b, RI_c, RI_d, RI_sp, RI_bp, RI_si, RI_di}
+
+	fmt.Println("; Registers")
+	for _, idx := range printOrder {
+		v := registers[idx]
+		reg := OperandRegister{idx, 0, 2}
+		fmt.Printf(";   %s: 0x%04x (%d)\n", reg, v, v)
+	}
+}
+
+type Memory [3072]byte
+
+var memory Memory
+
+func EvalEffectiveAddress(op OperandEffectiveAddress, registers Registers, memory Memory) int16 {
+	var address int16
+
+	bx := OperandRegister{RI_b, 0, 2}
+	bp := OperandRegister{RI_bp, 0, 2}
+	si := OperandRegister{RI_si, 0, 2}
+	di := OperandRegister{RI_di, 0, 2}
+
+	switch op.Base {
+	case "bx+si":
+		address = GetRegisterValue(bx, registers) + GetRegisterValue(si, registers)
+	case "bx+di":
+		address = GetRegisterValue(bx, registers) + GetRegisterValue(di, registers)
+	case "bp+si":
+		address = GetRegisterValue(bp, registers) + GetRegisterValue(si, registers)
+	case "bp+di":
+		address = GetRegisterValue(bp, registers) + GetRegisterValue(di, registers)
+	case "si":
+		address = GetRegisterValue(si, registers)
+	case "di":
+		address = GetRegisterValue(di, registers)
+	case "bp":
+		address = GetRegisterValue(bp, registers)
+	case "bx":
+		address = GetRegisterValue(bx, registers)
 	}
 
-	fmt.Println("bits 16")
+	return address + op.Disp
+}
 
-	for index := 0; index < len(buff); {
-		instruction, err := DecodeInstruction(index, buff)
-		if err != nil {
-			fmt.Println(";", err)
-			break
-		}
+func GetRegisterValue(operand OperandRegister, registers Registers) int16 {
+	// only wide registers
+	// TODO: support _h _l registers
+	return registers[operand.Index]
 
-		fmt.Println(instruction.String())
-		index += instruction.Size
+}
+
+func GetOperandValue(operand Operand, registers Registers, memory Memory) int16 {
+	switch op := operand.(type) {
+	case OperandImmediate:
+		return int16(op.Value)
+
+	case OperandRegister:
+		return GetRegisterValue(op, registers)
+
+	case OperandDirectAddress:
+		return int16(memory[op])
+
+	case OperandEffectiveAddress:
+		ea := EvalEffectiveAddress(op, registers, memory)
+		return int16(memory[ea])
 	}
+
+	return 0
+}
+
+func SetOperandValue(operand Operand, value int16, registers Registers, memory Memory) {
+	switch op := operand.(type) {
+	case OperandRegister:
+		// only wide registers
+		registers[op.Index] = value
+	}
+}
+
+func ExecuteIntruction(inst Instruction, registers Registers, memory Memory) {
+	dest := inst.Operands[0]
+	source := inst.Operands[1]
+
+	before := GetOperandValue(dest, registers, memory)
+
+	switch inst.Op {
+	case "mov":
+		value := GetOperandValue(source, registers, memory)
+		SetOperandValue(dest, value, registers, memory)
+	}
+
+	after := GetOperandValue(dest, registers, memory)
+
+	fmt.Printf("; %s 0x%04x->0x%04x\n", dest.String(), before, after)
 }
 
 func DecodeInstruction(startingAt int, buff []byte) (*Instruction, error) {
@@ -224,7 +331,7 @@ func DecodeInstruction(startingAt int, buff []byte) (*Instruction, error) {
 		if isTypeSet(bitsSet, Bits_Mod) {
 			instruction.Operands[0] = DecodeRm(rm, mod, w, bits[Bits_HasDisp])
 		} else if isTypeSet(bitsSet, Bits_HasAddr) {
-			instruction.Operands[0] = DirectAddress(readFromBuff(true, w, false))
+			instruction.Operands[0] = OperandDirectAddress(readFromBuff(true, w, false))
 		}
 
 		if isTypeSet(bitsSet, Bits_Reg) {
@@ -236,7 +343,7 @@ func DecodeInstruction(startingAt int, buff []byte) (*Instruction, error) {
 		}
 
 		if isTypeSet(bitsSet, Bits_HasData) {
-			instruction.Operands[1] = Immediate{bits[Bits_HasData], w}
+			instruction.Operands[1] = OperandImmediate{bits[Bits_HasData], w}
 		}
 
 		instruction.Op = bp.Name
@@ -252,7 +359,7 @@ func DecodeRm(rm uint16, mod uint16, wide bool, disp uint16) Operand {
 	switch mod {
 	case 0b00:
 		if rm == 0b110 {
-			return DirectAddress(disp)
+			return OperandDirectAddress(disp)
 		}
 		return eac(rm, mod, wide, disp)
 
@@ -269,7 +376,7 @@ func DecodeRm(rm uint16, mod uint16, wide bool, disp uint16) Operand {
 	return nil
 }
 
-func eac(rm uint16, mod uint16, wide bool, disp uint16) EffectiveAddress {
+func eac(rm uint16, mod uint16, wide bool, disp uint16) OperandEffectiveAddress {
 	regs := []string{
 		"bx+si",
 		"bx+di",
@@ -281,19 +388,36 @@ func eac(rm uint16, mod uint16, wide bool, disp uint16) EffectiveAddress {
 		"bx",
 	}
 
-	return EffectiveAddress{regs[rm], int16(disp)}
+	return OperandEffectiveAddress{regs[rm], int16(disp)}
 }
 
-func DecodeReg(reg uint16, wide bool) Register {
-	regs := [][2]Register{
-		{"al", "ax"},
-		{"cl", "cx"},
-		{"dl", "dx"},
-		{"bl", "bx"},
-		{"ah", "sp"},
-		{"ch", "bp"},
-		{"dh", "si"},
-		{"bh", "di"},
+type RegisterIndex byte
+
+const (
+	RI_a RegisterIndex = iota
+	RI_c
+	RI_d
+	RI_b
+	RI_sp
+	RI_bp
+	RI_si
+	RI_di
+
+	RI_Count
+)
+
+func DecodeReg(reg uint16, wide bool) OperandRegister {
+	regs := [][2]OperandRegister{
+		// Might need swapping low and high
+		// currently low - no offset, high - 1 offset
+		{{RI_a, 0, 1}, {RI_a, 0, 2}},
+		{{RI_c, 0, 1}, {RI_c, 0, 2}},
+		{{RI_d, 0, 1}, {RI_d, 0, 2}},
+		{{RI_b, 0, 1}, {RI_b, 0, 2}},
+		{{RI_a, 1, 1}, {RI_sp, 0, 2}},
+		{{RI_c, 1, 1}, {RI_bp, 0, 2}},
+		{{RI_d, 1, 1}, {RI_si, 0, 2}},
+		{{RI_b, 1, 1}, {RI_di, 0, 2}},
 	}
 
 	idx := 0
@@ -313,18 +437,38 @@ type Operand interface {
 	fmt.Stringer
 }
 
-type Register string
-
-func (reg Register) String() string {
-	return string(reg)
+type OperandRegister struct {
+	Index  RegisterIndex
+	Offset int
+	Size   int
 }
 
-type Immediate struct {
+func (reg OperandRegister) String() string {
+	var regStrings = [][3]string{
+		{"al", "ah", "ax"},
+		{"cl", "ch", "cx"},
+		{"dl", "dh", "dx"},
+		{"bl", "bh", "bx"},
+		{"sp", "sp", "sp"},
+		{"", "", "bp"},
+		{"", "", "si"},
+		{"", "", "di"},
+	}
+
+	idx := reg.Offset
+	if reg.Size == 2 {
+		idx = 2
+	}
+
+	return regStrings[reg.Index][idx]
+}
+
+type OperandImmediate struct {
 	Value uint16
 	Wide  bool
 }
 
-func (imm Immediate) String() string {
+func (imm OperandImmediate) String() string {
 	size := "byte"
 	if imm.Wide {
 		size = "word"
@@ -333,18 +477,18 @@ func (imm Immediate) String() string {
 	return fmt.Sprintf("%s %d", size, imm.Value)
 }
 
-type DirectAddress int
+type OperandDirectAddress int
 
-func (addr DirectAddress) String() string {
+func (addr OperandDirectAddress) String() string {
 	return fmt.Sprintf("[%d]", addr)
 }
 
-type EffectiveAddress struct {
+type OperandEffectiveAddress struct {
 	Base string
 	Disp int16
 }
 
-func (ea EffectiveAddress) String() string {
+func (ea OperandEffectiveAddress) String() string {
 	return fmt.Sprintf("[%s%+d]", ea.Base, ea.Disp)
 }
 
