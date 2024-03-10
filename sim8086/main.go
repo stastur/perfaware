@@ -148,6 +148,9 @@ func (registers Registers) Print() {
 	fmt.Println("; Registers")
 	for _, idx := range printOrder {
 		v := registers[idx]
+		if v == 0 {
+			continue
+		}
 		reg := OperandRegister{idx, 0, 2}
 		fmt.Printf(";   %s: 0x%04x (%d)\n", reg, v, v)
 	}
@@ -155,9 +158,9 @@ func (registers Registers) Print() {
 	PrintFlags(registers[RI_flags])
 }
 
-type Memory [3072]byte
+type Memory []byte
 
-var memory Memory
+var memory = make(Memory, 1024*1024)
 
 func EvalEffectiveAddress(op OperandEffectiveAddress, registers Registers, memory Memory) int16 {
 	var address int16
@@ -205,10 +208,18 @@ func GetOperandValue(operand Operand, registers Registers, memory Memory) int16 
 		return GetRegisterValue(op, registers)
 
 	case OperandDirectAddress:
-		return int16(memory[op])
+		hi := memory[op]
+		lo := memory[op+1]
+		return (int16(hi) << 8) | int16(lo)
 
 	case OperandEffectiveAddress:
 		ea := EvalEffectiveAddress(op, registers, memory)
+		if op.Wide {
+			hi := memory[ea]
+			lo := memory[ea+1]
+			return (int16(hi) << 8) | int16(lo)
+		}
+
 		return int16(memory[ea])
 	}
 
@@ -220,6 +231,15 @@ func SetOperandValue(operand Operand, value int16, registers Registers, memory M
 	case OperandRegister:
 		// only wide registers
 		registers[op.Index] = value
+
+	case OperandDirectAddress:
+		memory[op] = byte(value >> 8)
+		memory[op+1] = byte(0x0f & value)
+
+	case OperandEffectiveAddress:
+		ea := EvalEffectiveAddress(op, registers, memory)
+		memory[ea] = byte(value >> 8)
+		memory[ea+1] = byte(0x0f & value)
 	}
 }
 
@@ -263,9 +283,11 @@ func ExecuteIntruction(inst Instruction, registers Registers, memory Memory) {
 
 	if dest != nil {
 		left = GetOperandValue(dest, registers, memory)
+		fmt.Println(left)
 	}
 	if source != nil {
 		right = GetOperandValue(source, registers, memory)
+		fmt.Println(right)
 	}
 
 	switch inst.Op {
@@ -427,13 +449,13 @@ func DecodeRm(rm uint16, mod uint16, wide bool, disp uint16) Operand {
 		if rm == 0b110 {
 			return OperandDirectAddress(disp)
 		}
-		return eac(rm, disp)
+		return eac(rm, wide, disp)
 
 	case 0b01:
-		return eac(rm, disp)
+		return eac(rm, wide, disp)
 
 	case 0b10:
-		return eac(rm, disp)
+		return eac(rm, wide, disp)
 
 	case 0b11:
 		return DecodeReg(rm, wide)
@@ -442,7 +464,7 @@ func DecodeRm(rm uint16, mod uint16, wide bool, disp uint16) Operand {
 	return nil
 }
 
-func eac(rm uint16, disp uint16) OperandEffectiveAddress {
+func eac(rm uint16, wide bool, disp uint16) OperandEffectiveAddress {
 	regs := []string{
 		"bx+si",
 		"bx+di",
@@ -454,7 +476,7 @@ func eac(rm uint16, disp uint16) OperandEffectiveAddress {
 		"bx",
 	}
 
-	return OperandEffectiveAddress{regs[rm], int16(disp)}
+	return OperandEffectiveAddress{regs[rm], int16(disp), wide}
 }
 
 type RegisterIndex byte
@@ -565,6 +587,7 @@ func (addr OperandDirectAddress) String() string {
 type OperandEffectiveAddress struct {
 	Base string
 	Disp int16
+	Wide bool
 }
 
 func (ea OperandEffectiveAddress) String() string {
