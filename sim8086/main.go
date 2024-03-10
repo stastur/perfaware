@@ -18,18 +18,19 @@ func main() {
 
 	fmt.Println("bits 16")
 
-	for index := 0; index < len(buff); {
-		instruction, err := DecodeInstruction(index, buff)
+	for int(registers[RI_ip]) < len(buff) {
+		instruction, err := DecodeInstruction(int(registers[RI_ip]), buff)
 
 		if err != nil {
 			fmt.Println(";", err)
 			break
 		}
 
+		registers[RI_ip] += int16(instruction.Size)
+
 		fmt.Println(instruction.String())
 		ExecuteIntruction(*instruction, registers, memory)
 
-		index += instruction.Size
 	}
 
 	fmt.Println()
@@ -142,7 +143,7 @@ type Registers []int16
 var registers = make(Registers, RI_Count)
 
 func (registers Registers) Print() {
-	printOrder := []RegisterIndex{RI_a, RI_b, RI_c, RI_d, RI_sp, RI_bp, RI_si, RI_di}
+	printOrder := []RegisterIndex{RI_a, RI_b, RI_c, RI_d, RI_sp, RI_bp, RI_si, RI_di, RI_ip}
 
 	fmt.Println("; Registers")
 	for _, idx := range printOrder {
@@ -257,8 +258,15 @@ func ExecuteIntruction(inst Instruction, registers Registers, memory Memory) {
 	dest := inst.Operands[0]
 	source := inst.Operands[1]
 
-	left := GetOperandValue(dest, registers, memory)
-	right := GetOperandValue(source, registers, memory)
+	var left int16
+	var right int16
+
+	if dest != nil {
+		left = GetOperandValue(dest, registers, memory)
+	}
+	if source != nil {
+		right = GetOperandValue(source, registers, memory)
+	}
 
 	switch inst.Op {
 	case "mov":
@@ -277,12 +285,22 @@ func ExecuteIntruction(inst Instruction, registers Registers, memory Memory) {
 	case "cmp":
 		value := left - right
 		UpdateFlagsRegister(value, registers)
+
+	case "jne":
+		isZero := registers[RI_flags]&(1<<RF_zero) == (1 << RF_zero)
+		if !isZero {
+			registers[RI_ip] += int16(int8(right))
+		}
 	}
 
-	before := left
-	after := GetOperandValue(dest, registers, memory)
+	if dest != nil {
+		before := left
+		after := GetOperandValue(dest, registers, memory)
 
-	fmt.Printf("; %s 0x%04x->0x%04x\n", dest.String(), before, after)
+		fmt.Printf("; %s 0x%04x->0x%04x\n", dest.String(), before, after)
+	}
+
+	return
 }
 
 func DecodeInstruction(startingAt int, buff []byte) (*Instruction, error) {
@@ -409,13 +427,13 @@ func DecodeRm(rm uint16, mod uint16, wide bool, disp uint16) Operand {
 		if rm == 0b110 {
 			return OperandDirectAddress(disp)
 		}
-		return eac(rm, mod, wide, disp)
+		return eac(rm, disp)
 
 	case 0b01:
-		return eac(rm, mod, wide, disp)
+		return eac(rm, disp)
 
 	case 0b10:
-		return eac(rm, mod, wide, disp)
+		return eac(rm, disp)
 
 	case 0b11:
 		return DecodeReg(rm, wide)
@@ -424,7 +442,7 @@ func DecodeRm(rm uint16, mod uint16, wide bool, disp uint16) Operand {
 	return nil
 }
 
-func eac(rm uint16, mod uint16, wide bool, disp uint16) OperandEffectiveAddress {
+func eac(rm uint16, disp uint16) OperandEffectiveAddress {
 	regs := []string{
 		"bx+si",
 		"bx+di",
@@ -450,6 +468,7 @@ const (
 	RI_bp
 	RI_si
 	RI_di
+	RI_ip
 
 	RI_flags
 
@@ -512,6 +531,7 @@ func (reg OperandRegister) String() string {
 		{"", "", "bp"},
 		{"", "", "si"},
 		{"", "", "di"},
+		{"", "", "ip"},
 	}
 
 	idx := reg.Offset
