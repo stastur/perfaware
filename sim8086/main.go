@@ -9,6 +9,7 @@ import (
 
 func main() {
 	filePath := os.Args[1]
+	mode := os.Args[2]
 
 	buff, err := os.ReadFile(filePath)
 	if err != nil {
@@ -29,12 +30,16 @@ func main() {
 		registers[RI_ip] += int16(instruction.Size)
 
 		fmt.Println(instruction.String())
-		ExecuteIntruction(*instruction, registers, memory)
 
+		if mode == "-exec" {
+			ExecuteIntruction(*instruction, registers, memory)
+		}
 	}
 
-	fmt.Println()
-	registers.Print()
+	if mode == "-exec" {
+		fmt.Println()
+		registers.Print()
+	}
 }
 
 type BitsType int
@@ -283,11 +288,9 @@ func ExecuteIntruction(inst Instruction, registers Registers, memory Memory) {
 
 	if dest != nil {
 		left = GetOperandValue(dest, registers, memory)
-		fmt.Println(left)
 	}
 	if source != nil {
 		right = GetOperandValue(source, registers, memory)
-		fmt.Println(right)
 	}
 
 	switch inst.Op {

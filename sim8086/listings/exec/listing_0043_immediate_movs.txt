@@ -1,0 +1,29 @@
+bits 16
+mov ax, word 1
+; ax 0x0000->0x0001
+mov bx, word 2
+; bx 0x0000->0x0002
+mov cx, word 3
+; cx 0x0000->0x0003
+mov dx, word 4
+; dx 0x0000->0x0004
+mov sp, word 5
+; sp 0x0000->0x0005
+mov bp, word 6
+; bp 0x0000->0x0006
+mov si, word 7
+; si 0x0000->0x0007
+mov di, word 8
+; di 0x0000->0x0008
+
+; Registers
+;   ax: 0x0001 (1)
+;   bx: 0x0002 (2)
+;   cx: 0x0003 (3)
+;   dx: 0x0004 (4)
+;   sp: 0x0005 (5)
+;   bp: 0x0006 (6)
+;   si: 0x0007 (7)
+;   di: 0x0008 (8)
+;   ip: 0x0018 (24)
+; Flags: 

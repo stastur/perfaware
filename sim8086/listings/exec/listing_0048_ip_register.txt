@@ -1,0 +1,19 @@
+bits 16
+mov cx, word 200
+; cx 0x0000->0x00c8
+mov bx, cx
+; bx 0x0000->0x00c8
+add cx, word 1000
+; Flags: 
+; cx 0x00c8->0x04b0
+mov bx, word 2000
+; bx 0x00c8->0x07d0
+sub cx, bx
+; Flags: S
+; cx 0x04b0->0x-320
+
+; Registers
+;   bx: 0x07d0 (2000)
+;   cx: 0x-320 (-800)
+;   ip: 0x000e (14)
+; Flags: S

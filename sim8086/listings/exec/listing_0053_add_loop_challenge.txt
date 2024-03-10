@@ -1,0 +1,69 @@
+bits 16
+mov dx, word 6
+; dx 0x0000->0x0006
+mov bp, word 1000
+; bp 0x0000->0x03e8
+mov si, word 0
+; si 0x0000->0x0000
+mov [bp+si+0], si
+; [bp+si+0] 0x0000->0x0000
+add si, word 2
+; Flags: 
+; si 0x0000->0x0002
+cmp si, dx
+; Flags: S
+; si 0x0002->0x0002
+jne byte 247
+mov [bp+si+0], si
+; [bp+si+0] 0x0000->0x0002
+add si, word 2
+; Flags: 
+; si 0x0002->0x0004
+cmp si, dx
+; Flags: S
+; si 0x0004->0x0004
+jne byte 247
+mov [bp+si+0], si
+; [bp+si+0] 0x0000->0x0004
+add si, word 2
+; Flags: 
+; si 0x0004->0x0006
+cmp si, dx
+; Flags: Z
+; si 0x0006->0x0006
+jne byte 247
+mov bx, word 0
+; bx 0x0000->0x0000
+mov si, dx
+; si 0x0006->0x0006
+sub bp, word 2
+; Flags: 
+; bp 0x03e8->0x03e6
+add bx, [bp+si+0]
+; Flags: 
+; bx 0x0000->0x0004
+sub si, word 2
+; Flags: 
+; si 0x0006->0x0004
+jne byte 249
+add bx, [bp+si+0]
+; Flags: 
+; bx 0x0004->0x0006
+sub si, word 2
+; Flags: 
+; si 0x0004->0x0002
+jne byte 249
+add bx, [bp+si+0]
+; Flags: 
+; bx 0x0006->0x0006
+sub si, word 2
+; Flags: Z
+; si 0x0002->0x0000
+jne byte 249
+
+; Registers
+;   bx: 0x0006 (6)
+;   dx: 0x0006 (6)
+;   bp: 0x03e6 (998)
+;   ip: 0x0021 (33)
+; Flags: Z
