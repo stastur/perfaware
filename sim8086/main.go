@@ -32,6 +32,7 @@ func main() {
 
 	memory := make(Memory, (2<<15)-1)
 	registers := make(Registers, RI_Count)
+	cycles := 0
 
 	for int(registers[RI_ip]) < len(buff) {
 		instruction, err := DecodeInstruction(int(registers[RI_ip]), buff)
@@ -42,8 +43,13 @@ func main() {
 		}
 
 		registers[RI_ip] += int16(instruction.Size)
+		cycles += instruction.EstimateCycles()
 
 		fmt.Println(instruction.String())
+
+		if mode == "cycles" {
+			fmt.Printf("; cycles +%d = %d\n", instruction.EstimateCycles(), cycles)
+		}
 
 		if mode == "exec" {
 			ExecuteIntruction(*instruction, registers, memory)
