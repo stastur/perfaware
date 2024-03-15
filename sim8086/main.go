@@ -2,25 +2,23 @@ package main
 
 import (
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"os"
-	"strings"
 )
 
+var mode string
+var dump string
+var filePath string
+
+func init() {
+	flag.StringVar(&mode, "mode", "decode", "command mode - [exec, decode, cycles]")
+	flag.StringVar(&dump, "dump", "", "file path for memory dump")
+	flag.StringVar(&filePath, "path", "", "file path to asm binary")
+}
+
 func main() {
-	flags := make(map[string]string)
-
-	for _, flag := range os.Args[1:] {
-		pair := strings.Split(strings.Trim(flag, " -"), "=")
-
-		if len(pair) == 2 {
-			flags[pair[0]] = pair[1]
-		}
-	}
-
-	mode := flags["mode"]
-	dump := flags["dump"]
-	filePath := flags["path"]
+	flag.Parse()
 
 	buff, err := os.ReadFile(filePath)
 	if err != nil {
